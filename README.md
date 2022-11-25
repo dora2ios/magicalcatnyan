@@ -8,3 +8,6 @@ many codes are missing :p
 　　|　　　  |／   
 　　 ￣￣￣￣   
 
+credit: 
+pongoOS ... checkra1n  
+patchfinder ... in7egral
