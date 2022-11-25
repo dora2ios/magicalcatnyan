@@ -2,7 +2,7 @@
 unfinished, incomplete iboot payload  
 many codes are missing :p  
 
-　    ∧＿∧＿_   
+　　　　∧＿∧＿_   
 　　／(´･ω･`) ／＼   
 　／|￣￣￣￣|＼／   
 　　|　　　  |／   
