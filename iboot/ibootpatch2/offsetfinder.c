@@ -1,6 +1,49 @@
+/*
+ * patchfinder64.c
+ *
+ * Created by Vladimir Putin on 14.12.16.
+ * Fixes by Alex Hude and Max Bazaliy
+ * Updated by sakuRdev on 2021/12/02.
+ * Some parts of code from Luca Todesco and Pangu
+ *
+ * Copyright (c) 2016 -2017 FriedApple Team.
+ * Copyright (c) 2021 sakuRdev.
+ * Copyright (c) 2022 dora2ios.
+ *
+ * This file is part of kokeshidoll.
+ *
+ */
 
 #include <stdint.h>
+#include <common.h>
 #include <offsetfinder.h>
+
+static uint32_t* find_insn_maskmatch_match(uint8_t* data, size_t size, uint32_t* matches, uint32_t* masks, int count)
+{
+    int found = 0;
+    if(sizeof(matches) != sizeof(masks))
+        return NULL;
+    
+    uint32_t* current_inst = (uint32_t*)data;
+    while((uintptr_t)current_inst < (uintptr_t)data + size - 4 - (count*4)) {
+        current_inst++;
+        found = 1;
+        for(int i = 0; i < count; i++)
+        {
+            if((matches[i] & masks[i]) != (current_inst[i] & masks[i]))
+            {
+                found = 0;
+                break;
+            }
+        }
+        if(found)
+        {
+            return current_inst;
+        }
+    }
+    
+    return NULL;
+}
 
 static uint32_t* find_next_insn_matching_64(uint64_t region, uint8_t* kdata, size_t ksize, uint32_t* current_instruction, int (*match_func)(uint32_t*))
 {
@@ -69,6 +112,16 @@ static int insn_is_mov_imm_64(uint32_t* i)
     return 0;
 }
 
+static int insn_is_mov_reg64(uint32_t* i)
+{
+    return (*i & 0x7FE003E0) == 0x2A0003E0;
+}
+
+static int insn_mov_reg_rd64(uint32_t* i)
+{
+    return *i & 0x1F;
+}
+
 static int insn_mov_imm_rd_64(uint32_t* i)
 {
     return (*i & 0x1f);
@@ -91,6 +144,14 @@ static int insn_is_ldr_literal_64(uint32_t* i)
     
     // C6.2.95 LDR (literal) LDRSW Xt
     if ((*i & 0xff000000) == 0x98000000)
+        return 1;
+    
+    return 0;
+}
+
+static int insn_is_ret(uint32_t* i)
+{
+    if (*i == 0xd65f03c0)
         return 1;
     
     return 0;
@@ -231,6 +292,7 @@ int insn_is_funcbegin_64(uint32_t* i)
     return 0;
 }
 
+
 static uint32_t* find_literal_ref_64(uint64_t region, uint8_t* kdata, size_t ksize, uint32_t* insn, uint64_t address)
 {
     uint32_t* current_instruction = insn;
@@ -312,9 +374,28 @@ static uint32_t* find_literal_ref_64(uint64_t region, uint8_t* kdata, size_t ksi
     return NULL;
 }
 
-uint64_t find_printf(uint64_t region, uint8_t* data, size_t size)
+// search next instruction, decrementing mode
+static uint32_t* find_last_insn_matching_64(uint64_t region, uint8_t* kdata, size_t ksize, uint32_t* current_instruction, int (*match_func)(uint32_t*))
 {
-    uint8_t* str = memmem(data, size, "Entering recovery mode, starting command prompt\n", sizeof("Entering recovery mode, starting command prompt\n"));
+    while((uintptr_t)current_instruction > (uintptr_t)kdata) {
+        current_instruction--;
+        
+        if(match_func(current_instruction)) {
+            return current_instruction;
+        }
+    }
+    
+    return NULL;
+}
+
+
+
+
+
+
+uint64_t find_check_bootmode(uint64_t region, uint8_t* data, size_t size)
+{
+    uint8_t* str = memmem(data, size, "debug-uarts", sizeof("debug-uarts"));
     if(!str)
         return 0;
     
@@ -323,43 +404,266 @@ uint64_t find_printf(uint64_t region, uint8_t* data, size_t size)
     if (!ref)
         return 0;
     
-    // find BL
-    uint32_t *bl_addr = find_next_insn_matching_64(region, data, size, ref, insn_is_bl_64);
+    // find 3rd-BL
+    uint32_t *bl_addr = find_insn_matching_64_with_count(region, data, size, ref, insn_is_bl_64, 2);
     if (!bl_addr)
         return 0;
-    
     
     return ((uintptr_t)bl_addr - (uintptr_t)data) + insn_bl_imm32_64(bl_addr);
 }
 
-//uint64_t find_jumpto_func(uint64_t region, uint8_t* data, size_t size)
-//{
-//    uint32_t search[2];
-//
-//    uint8_t* str = memmem(data, size, "======== End of %s serial output. ========\n", sizeof("======== End of %s serial output. ========\n"));
-//    if(!str)
-//        return 0;
-//
-//    // Find a reference to the string.
-//    uint32_t* ref = find_literal_ref_64(region, data, size, (uint32_t*)data, (uintptr_t)str - (uintptr_t)data);
-//    if (!ref)
-//        return 0;
-//
-//    search[0] = 0xaa1403e0; // mov x0, x20
-//    search[1] = 0xaa1303e1; // mov x1, x19
-//
-//    uint32_t* jump = memmem(ref, size - ((uintptr_t)ref - (uintptr_t)data), search, sizeof(search));
-//    if (!jump)
-//        return 0;
-//
-//    uint32_t *bl_addr = find_next_insn_matching_64(region, data, size, jump, insn_is_bl_64);
-//    if (!bl_addr)
-//        return 0;
-//
-//    return ((uintptr_t)bl_addr - (uintptr_t)data) + insn_bl_imm32_64(bl_addr);
-//}
 
-uint64_t find_jumpto_func(uint64_t region, uint8_t* data, size_t size)
+uint64_t find_sigcheck(uint64_t region, uint8_t* data, size_t size)
+{
+    uint32_t* ptr = memmem(data, size, "\xC1\xAE\x8C\x52\x61\xEE\xAD\x72", 8);
+    if(!ptr)
+        return 0;
+    
+    // find RET
+    uint32_t *ret_addr = find_next_insn_matching_64(region, data, size, ptr, insn_is_ret);
+    if (!ret_addr)
+        return 0;
+    
+    // find mov X0, Xy
+    uint32_t *mov_addr = NULL;
+    
+    while(1)
+    {
+        mov_addr = find_last_insn_matching_64(region, data, size, ret_addr, insn_is_mov_reg64);
+        if (!mov_addr)
+            return 0;
+        if(insn_mov_reg_rd64(mov_addr) == 0)
+            break;
+        mov_addr--;
+    }
+    
+    return ((uintptr_t)mov_addr - (uintptr_t)data);
+}
+
+
+static uint64_t find_memcmp(uint64_t region, uint8_t* data, size_t size)
+{
+    
+    uint32_t matches_variant[] = {
+        0xb4000122,
+        0x39400008,
+        0x39400029,
+        0x6b090108,
+    };
+    uint32_t masks_variant[] = {
+        0xffffffff,
+        0xffffffff,
+        0xffffffff,
+        0xffffffff,
+    };
+    
+    uint32_t* ref = find_insn_maskmatch_match(data, size, matches_variant, masks_variant, sizeof(matches_variant)/sizeof(uint32_t));
+    
+    if(!ref)
+    {
+        uint32_t matches[] = {
+            0x52800008,
+            0xb4000142,
+            0x39400008,
+            0x39400029,
+            0x4b090108,
+        };
+        uint32_t masks[] = {
+            0xffffffff,
+            0xffffffff,
+            0xffffffff,
+            0xffffffff,
+            0xffffffff,
+        };
+        
+        ref = find_insn_maskmatch_match(data, size, matches, masks, sizeof(matches)/sizeof(uint32_t));
+        
+        if(!ref)
+            return 0;
+        
+    }
+        
+    
+    return (uintptr_t)ref - (uintptr_t)data;
+}
+
+uint64_t find_boot_manifest_validation(uint64_t region, uint8_t* data, size_t size)
+{
+    
+    uint64_t memcmp_off = find_memcmp(region, data, size);
+    if(!memcmp_off)
+        return 0;
+    
+    uint32_t* ref = NULL;
+    
+    uint32_t matches_variant[] = {
+        0x2A0003E0, // mov x0, xn
+        0x2A0003E1, // mov x1, xn
+        0x52800602, // mov w2, #0x30
+        0x94000000, // BL _x
+    };
+    uint32_t masks_variant[] = {
+        0x7FE003FF,
+        0x7FE003FF,
+        0xffffffff,
+        0xFC000000,
+    };
+    
+    uint8_t* start = data;
+    while(1)
+    {
+        ref = find_insn_maskmatch_match(start, size, matches_variant, masks_variant, sizeof(matches_variant)/sizeof(uint32_t));
+        if(!ref)
+            return 0;
+        ref += 3; // BL _x
+        
+        if(((uintptr_t)ref - (uintptr_t)data + insn_bl_imm32_64(ref)) == memcmp_off)
+            return (uintptr_t)ref - (uintptr_t)data;
+        if(size < ((uintptr_t)ref - (uintptr_t)data))
+            return 0;
+        size = size - ((uintptr_t)ref - (uintptr_t)data);
+        if(size < 0)
+            return 0;
+        start = (uint8_t*)ref;
+        
+    }
+    
+}
+
+uint64_t find_zero(uint64_t region, uint8_t* data, size_t size)
+{
+    unsigned char zeroBuf[0x200];
+    memset(&zeroBuf, '\0', 0x200);
+    uint32_t* zero = memmem(data, size, zeroBuf, 0x200);
+    if(!zero)
+        return 0;
+    
+    zero += 6;
+    
+    uint64_t address = ((uintptr_t)zero - (uintptr_t)data);
+    address = address &~ 0x7;
+    
+    return address;
+}
+
+uint64_t find_go_cmd_handler(uint64_t region, uint8_t* data, size_t size)
+{
+    if(!region)
+        return 0;
+    
+    uint64_t maxsize = region + size;
+    uint64_t search[1];
+    
+    uint8_t* str = memmem(data, size, "\x00go\x00", 4);
+    if(!str)
+        return 0;
+    str += 1;
+    
+    uint64_t addr = ((uintptr_t)str - (uintptr_t)data) + region;
+    if(maxsize < addr)
+        return 0;
+    
+    search[0] = addr;
+    uint8_t* ptr = memmem(data, size, search, sizeof(search));
+    if(!ptr)
+        return 0;
+    
+    return ((uintptr_t)ptr - (uintptr_t)data) + 8;
+}
+
+uint64_t find_bootx_cmd_handler(uint64_t region, uint8_t* data, size_t size)
+{
+    if(!region)
+        return 0;
+    
+    uint64_t maxsize = region + size;
+    uint64_t search[1];
+    
+    uint8_t* str = memmem(data, size, "\x00\x62\x6F\x6F\x74\x78\x00", 7);
+    if(!str)
+        return 0;
+    str += 1;
+    
+    uint64_t addr = ((uintptr_t)str - (uintptr_t)data) + region;
+    if(maxsize < addr)
+        return 0;
+    
+    search[0] = addr;
+    uint8_t* ptr = memmem(data, size, search, sizeof(search));
+    if(!ptr)
+        return 0;
+    
+    return ((uintptr_t)ptr - (uintptr_t)data) + 8;
+}
+
+
+uint64_t find_reset_cmd_handler(uint64_t region, uint8_t* data, size_t size)
+{
+    if(!region)
+        return 0;
+    
+    uint64_t maxsize = region + size;
+    uint64_t search[1];
+    
+    uint8_t* str = memmem(data, size, "\x00\x72\x65\x73\x65\x74\x00", 7);
+    if(!str)
+        return 0;
+    str += 1;
+    
+    uint64_t addr = ((uintptr_t)str - (uintptr_t)data) + region;
+    if(maxsize < addr)
+        return 0;
+    
+    search[0] = addr;
+    uint8_t* ptr = memmem(data, size, search, sizeof(search));
+    if(!ptr)
+        return 0;
+    
+    return ((uintptr_t)ptr - (uintptr_t)data) + 8;
+}
+
+
+
+uint64_t find_mount_and_boot_system(uint64_t region, uint8_t* data, size_t size)
+{
+    if(!region)
+        return 0;
+    
+    uint64_t maxsize = region + size;
+    uint64_t search[1];
+    
+    uint8_t* str = memmem(data, size, "\x00\x66\x73\x62\x6F\x6F\x74\x00", 8);
+    if(!str)
+        return 0;
+    str += 1;
+    
+    uint64_t addr = ((uintptr_t)str - (uintptr_t)data) + region;
+    if(maxsize < addr)
+        return 0;
+    
+    search[0] = addr;
+    uint8_t* ptr = memmem(data, size, search, sizeof(search));
+    if(!ptr)
+        return 0;
+    
+    uint64_t offset = ((uintptr_t)ptr - (uintptr_t)data) + 8;
+    if(size < offset)
+        return 0;
+    
+    uint64_t* dq = (uint64_t*)(data + offset);
+    if(!dq)
+        return 0;
+    
+    if(dq[0] < region)
+        return 0;
+    
+    uint64_t ret = dq[0] - region;
+    
+    return ret;
+}
+
+
+uint64_t find_jumpto_bl(uint64_t region, uint8_t* data, size_t size)
 {
     uint32_t search[2];
     
@@ -379,67 +683,23 @@ uint64_t find_jumpto_func(uint64_t region, uint8_t* data, size_t size)
     if (!jump)
         return 0;
     
-    return ((uintptr_t)jump - (uintptr_t)data) + 8 + 4;
-}
-
-uint64_t find_malloc(uint64_t region, uint8_t* data, size_t size)
-{
-    
-    uint32_t search[5];
-    search[0] = 0xd28e65b9; // mov        x25, #0x732d
-    search[1] = 0xf2a3e779; // movk       x25, #0x1f3b, lsl #16
-    search[2] = 0xf2c95359; // movk       x25, #0x4a9a, lsl #32
-    search[3] = 0xf2e0a1b9; // movk       x25, #0x50d, lsl #48
-    search[4] = 0x52820000; // mov        w0, #0x1000
-    
-    uint32_t* tgt = memmem(data, size, search, sizeof(search));
-    if(!tgt)
-        return 0;
-    
-    // find BL
-    uint32_t *bl_addr = find_next_insn_matching_64(region, data, size, tgt, insn_is_bl_64);
+    uint32_t *bl_addr = find_next_insn_matching_64(region, data, size, jump, insn_is_bl_64);
     if (!bl_addr)
         return 0;
     
-    return ((uintptr_t)bl_addr - (uintptr_t)data) + insn_bl_imm32_64(bl_addr);
+    return ((uintptr_t)bl_addr - (uintptr_t)data);
 }
 
-uint64_t find_panic(uint64_t region, uint8_t* data, size_t size)
+uint64_t find_ptr_obfuscation(uint64_t region, uint8_t* data, size_t size)
 {
-    uint8_t* str = memmem(data, size, "unknown LPDDR4 density %d", sizeof("unknown LPDDR4 density %d"));
+    uint8_t* str = memmem(data, size, "<ptr>", sizeof("<ptr>"));
     if(!str)
         return 0;
     
-    // Find a reference to the string.
     uint32_t* ref = find_literal_ref_64(region, data, size, (uint32_t*)data, (uintptr_t)str - (uintptr_t)data);
     if (!ref)
         return 0;
     
-    // find BL
-    uint32_t *bl_addr = find_next_insn_matching_64(region, data, size, ref, insn_is_bl_64);
-    if (!bl_addr)
-        return 0;
-    
-    
-    return ((uintptr_t)bl_addr - (uintptr_t)data) + insn_bl_imm32_64(bl_addr);
+    return ((uintptr_t)ref - (uintptr_t)data);
 }
 
-uint64_t find_free(uint64_t region, uint8_t* data, size_t size)
-{
-    
-    uint8_t* str = memmem(data, size, "bridge-settings-%d", sizeof("bridge-settings-%d"));
-    if(!str)
-        return 0;
-    
-    // Find a reference to the string.
-    uint32_t* ref = find_literal_ref_64(region, data, size, (uint32_t*)data, (uintptr_t)str - (uintptr_t)data);
-    if (!ref)
-        return 0;
-    
-    // find 3rd-BL
-    uint32_t *bl_addr = find_insn_matching_64_with_count(region, data, size, ref, insn_is_bl_64, 2);
-    if (!bl_addr)
-        return 0;
-    
-    return ((uintptr_t)bl_addr - (uintptr_t)data) + insn_bl_imm32_64(bl_addr);
-}

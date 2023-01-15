@@ -3,3 +3,16 @@
 .irecovery
 irecovery
 vmacho
+iboot/generate
+iboot/ibootpatch2/asm/shellcode.bin
+iboot/ibootpatch2/asm/shellcode.h
+iboot/ibootpatch2/generate
+iboot/ibootpatch2/ibootpatch2.bin
+iboot/ibootpatch2/ibootpatch2.h
+iboot/tramhook.bin
+iboot/tramhook.h
+magic/magic.h
+magic/payload.bin
+magic/payload.o
+iboot/ibootpatch2/test.c
+magic/kpf.c

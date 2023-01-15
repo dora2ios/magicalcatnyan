@@ -25,42 +25,62 @@
  *
  */
 
-.globl _CHIP
-.globl _OVERLAY_DATA
-.globl _OVERLAY_SIZE
+.globl _MEMCPY_OFFSET
+.globl _TRAMPOLINE
 
-.globl _enable_interrupts
-.globl _disable_interrupts
+.globl _HEAP_BASE
+.globl _HEAP_WRITE_OFFSET
+.globl _HEAP_STATE
+.globl _HEAP_WRITE_HASH
+.globl _HEAP_CHECK_ALL
+.globl _DFU_BOOL
+.globl _BOOTSTRAP_TASK_LR
+.globl _NAND_BOOT_JUMP
 
 .globl start
 .align 4
 start:
 
 // 0x0000
+b start
+
+.org 0x800
 b _payload
-b _jump_hook
-nop
-nop
-
-_CHIP:
-.quad 0x7171717171717171
-
-_OVERLAY_DATA:
-.quad 0x7272727272727272
-
-_OVERLAY_SIZE:
-.quad 0x7373737373737373
-
-nop
 nop
 nop
 nop
 
-_enable_interrupts:
-msr daifclr,#0xf
-isb
-ret
-_disable_interrupts:
-msr daifset,#0xf
-isb
-ret
+_MEMCPY_OFFSET:
+.quad 0x5151515151515151
+
+_TRAMPOLINE:
+.quad 0x5252525252525252
+
+_HEAP_BASE:
+.quad 0x5353535353535353
+
+_HEAP_WRITE_OFFSET:
+.quad 0x5454545454545454
+
+_HEAP_STATE:
+.quad 0x5555555555555555
+
+_HEAP_WRITE_HASH:
+.quad 0x5656565656565656
+
+_HEAP_CHECK_ALL:
+.quad 0x5757575757575757
+
+_DFU_BOOL:
+.quad 0x5858585858585858
+
+_BOOTSTRAP_TASK_LR:
+.quad 0x5959595959595959
+
+_NAND_BOOT_JUMP:
+.quad 0x5a5a5a5a5a5a5a5a
+
+nop
+nop
+nop
+nop

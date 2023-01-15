@@ -1,7 +1,7 @@
 /*
  * pongoOS - https://checkra.in
  *
- * Copyright (C) 2019-2021 checkra1n team
+ * Copyright (C) 2019-2022 checkra1n team
  *
  * This file is part of pongoOS.
  *
@@ -24,43 +24,31 @@
  * SOFTWARE.
  *
  */
+#ifndef FB_H
+#define FB_H
 
-.globl _CHIP
-.globl _OVERLAY_DATA
-.globl _OVERLAY_SIZE
+#include <stdint.h>
+#include <common.h>
 
-.globl _enable_interrupts
-.globl _disable_interrupts
+#define SCALE_FACTOR scale_factor
+#define LEFT_MARGIN 4 * scale_factor
 
-.globl start
-.align 4
-start:
+extern char overflow_mode;
+extern uint32_t* gFramebuffer;
+extern uint32_t gWidth;
+extern uint32_t gHeight;
+extern uint32_t gRowPixels;
+extern uint32_t y_cursor;
+extern uint32_t x_cursor;
+extern uint8_t scale_factor;
 
-// 0x0000
-b _payload
-b _jump_hook
-nop
-nop
+void screen_init();
+void screen_puts(const char* str);
+void screen_write(const char* str);
+void screen_putc(uint8_t c);
+void screen_clear_row();
+void screen_mark_banner();
+void screen_fill_basecolor();
+void screen_fill(uint32_t color);
 
-_CHIP:
-.quad 0x7171717171717171
-
-_OVERLAY_DATA:
-.quad 0x7272727272727272
-
-_OVERLAY_SIZE:
-.quad 0x7373737373737373
-
-nop
-nop
-nop
-nop
-
-_enable_interrupts:
-msr daifclr,#0xf
-isb
-ret
-_disable_interrupts:
-msr daifset,#0xf
-isb
-ret
+#endif
